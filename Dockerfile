@@ -1,23 +1,49 @@
-FROM python:3.8-slim
+FROM python:3.11-slim-bookworm
 
+ENV TGBOT_USER ${TGBOT_USER:-tgbot}
+ENV TGBOT_GROUP ${TGBOT_GROUP:-tgbot}
+ENV TGBOT_UID ${TGBOT_UID:-10000}
+ENV TGBOT_GID ${TGBOT_UID:-10000}
+ENV TGBOT_HOME_DIR ${TGBOT_HOME_DIR:-/home/tgbot}
+ENV TGBOT_WORK_DIR ${TGBOT_WORK_DIR:-/home/tgbot/app}
+
+ARG DEBIAN_FRONTEND noninteractive
+
+# Prepare owner
+RUN \
+    set -eux; \
+    mkdir -p $TGBOT_HOME_DIR; \
+    mkdir -p $TGBOT_WORK_DIR; \
+    addgroup --gid $TGBOT_GID $TGBOT_GROUP; \
+    adduser --uid $TGBOT_UID --home $TGBOT_HOME_DIR --ingroup $TGBOT_GROUP $TGBOT_USER; \
+    chown -R $TGBOT_USER:$TGBOT_GROUP $TGBOT_HOME_DIR; \
+    chown -R $TGBOT_USER:$TGBOT_GROUP $TGBOT_WORK_DIR;
+
+COPY . $TGBOT_WORK_DIR
+
+# Install
 RUN \
     set -eux; \
     apt-get update; \
-    DEBIAN_FRONTEND="noninteractive" apt-get install -y --no-install-recommends \
-    python3-pip \
-    build-essential \
-    python3-venv \
-    ffmpeg \
-    git \
-    ; \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+        ffmpeg \
+        gosu \
+        tini \
+        ; \
+    pip3 --no-color \
+         --disable-pip-version-check \
+         --no-cache-dir \
+         install -r $TGBOT_WORK_DIR/requirements.txt;
 
-RUN pip3 install -U pip && pip3 install -U wheel && pip3 install -U setuptools==59.5.0
-COPY ./requirements.txt /tmp/requirements.txt
-RUN pip3 install -r /tmp/requirements.txt && rm -r /tmp/requirements.txt
+# Clean
+RUN \
+    set -eux; \
+    apt autoclean; \
+    rm -f $TGBOT_WORK_DIR/requirements.txt; \
+    rm -rf /var/lib/apt/lists/*;
 
-COPY . /code
-WORKDIR /code
+WORKDIR $TGBOT_WORK_DIR
 
-CMD ["bash"]
+ENTRYPOINT ["tini", "--"]
 
+CMD ["sh", "-c", "gosu $TGBOT_USER python3 bot/bot.py"]
